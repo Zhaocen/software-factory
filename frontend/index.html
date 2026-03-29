@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FORGE AI — AI 软件工厂</title>
+  <link rel="stylesheet" href="style.css?v=7" />
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="glow-top"></div>
+
+<div class="app-shell">
+  <!-- 导航 -->
+  <nav class="nav">
+    <div class="logo">FORGE<span>AI</span></div>
+    <ul class="nav-links">
+      <li><a href="#projects" data-page="projects">项目</a></li>
+      <li><a href="#config" data-page="config">配置</a></li>
+      <li><a href="#devops" data-page="devops">运维管理</a></li>
+    </ul>
+    <div>
+      <button class="btn btn-primary btn-sm" id="new-project-btn">+ 新建项目</button>
+    </div>
+  </nav>
+
+  <!-- 主内容区 -->
+  <main class="page-content">
+
+    <!-- ======================== 项目页 ======================== -->
+    <div id="page-projects" class="page hidden">
+      <div class="page-header">
+        <div>
+          <div class="page-label">项目管理</div>
+          <h1 class="page-heading">所有项目</h1>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <span id="projects-count" style="font-size:13px;color:var(--muted)"></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadProjects()">刷新</button>
+        </div>
+      </div>
+
+      <div id="projects-loading" class="hidden" style="text-align:center;padding:60px;color:var(--muted);font-size:14px">
+        加载中...
+      </div>
+
+      <div id="projects-empty" class="empty-state hidden">
+        <div class="empty-icon">🏭</div>
+        <div class="empty-text">还没有项目</div>
+        <div class="empty-sub">点击右上角「新建项目」开始构建你的第一个 AI 软件</div>
+        <button class="btn btn-primary" onclick="openNewProjectModal()">+ 新建项目</button>
+      </div>
+
+      <div id="projects-grid" class="project-grid"></div>
+    </div>
+
+    <!-- ======================== 配置页 ======================== -->
+    <div id="page-config" class="page hidden">
+      <div class="page-header">
+        <div>
+          <div class="page-label">系统配置</div>
+          <h1 class="page-heading">配置中心</h1>
+        </div>
+      </div>
+
+      <div class="config-tabs">
+        <button class="config-tab active" data-tab="llm">大模型配置</button>
+        <button class="config-tab" data-tab="docker">Docker 环境</button>
+        <button class="config-tab" data-tab="git">Git 配置</button>
+        <button class="config-tab" data-tab="skills">Skills 管理</button>
+      </div>
+
+      <!-- LLM 配置 -->
+      <div id="tab-llm" class="config-panel active">
+        <!-- 供应商管理 -->
+        <div style="margin-bottom:24px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div>
+              <div class="page-label">LLM 供应商</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:2px">在此统一管理 API 密钥和接入地址，Agent 直接引用</div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="openProviderModal()">+ 添加供应商</button>
+          </div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <table class="skills-table" id="providers-table">
+              <thead>
+                <tr>
+                  <th>名称</th><th>类型</th><th>Base URL</th><th>可用模型</th><th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="providers-tbody">
+                <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Agent 模型分配 -->
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div>
+              <div class="page-label">Agent 模型分配</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:2px">为每个 Agent 选择使用的模型，可按需平衡成本与能力</div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="saveAgentsConfig()">保存分配</button>
+          </div>
+          <div class="card" style="padding:0 0 4px">
+            <!-- 表头 -->
+            <div style="display:grid;grid-template-columns:140px 160px 1fr 90px 110px;gap:12px;padding:8px 20px;border-bottom:0.5px solid var(--border)">
+              <div style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase">Agent</div>
+              <div style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase">供应商</div>
+              <div style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase">模型名称</div>
+              <div style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase">Temp</div>
+              <div style="font-size:11px;font-family:var(--mono);color:var(--muted);letter-spacing:1px;text-transform:uppercase">Max Tokens</div>
+            </div>
+            <div id="agents-config-form"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Docker 配置 -->
+      <div id="tab-docker" class="config-panel">
+        <div class="card">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">内存限制</label>
+              <input class="form-input" id="docker-mem" placeholder="512m" />
+              <div class="form-hint">例如 512m、1g</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">CPU 配额</label>
+              <input class="form-input" id="docker-cpu" type="number" placeholder="50000" />
+              <div class="form-hint">100000 = 1 CPU</div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">超时（秒）</label>
+              <input class="form-input" id="docker-timeout" type="number" placeholder="120" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">禁用网络</label>
+              <div style="padding-top:10px">
+                <label class="toggle"><input type="checkbox" id="docker-network" /><span class="toggle-slider"></span></label>
+                <span style="font-size:13px;color:var(--muted);margin-left:10px">沙箱容器禁止访问网络</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end">
+            <button class="btn btn-primary" onclick="saveDockerConfig()">保存配置</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Git 配置 -->
+      <div id="tab-git" class="config-panel">
+        <div class="card">
+          <div class="form-group">
+            <label class="form-label">启用 Git 集成</label>
+            <label class="toggle"><input type="checkbox" id="git-enabled" /><span class="toggle-slider"></span></label>
+            <span style="font-size:13px;color:var(--muted);margin-left:10px">自动 git init 并提交</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">远程仓库 URL</label>
+            <input class="form-input" id="git-remote" placeholder="https://github.com/yourname/repo.git" />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">默认分支</label>
+              <input class="form-input" id="git-branch" placeholder="main" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">自动推送</label>
+              <div style="padding-top:10px">
+                <label class="toggle"><input type="checkbox" id="git-autopush" /><span class="toggle-slider"></span></label>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end">
+            <button class="btn btn-primary" onclick="saveGitConfig()">保存配置</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skills 管理 -->
+      <div id="tab-skills" class="config-panel">
+        <div class="toolbar">
+          <button class="btn btn-primary btn-sm" onclick="openSkillModal()">+ 新建 Skill</button>
+          <button class="btn btn-ghost btn-sm" onclick="openImportSkillModal()">导入</button>
+          <span id="skills-count" style="font-size:13px;color:var(--muted)"></span>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden">
+          <table class="skills-table">
+            <thead>
+              <tr>
+                <th>名称 / 描述</th>
+                <th>分类</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="skills-tbody"></tbody>
+          </table>
+          <div id="skills-empty" class="empty-state hidden" style="padding:40px">
+            <div class="empty-icon" style="font-size:32px">🔧</div>
+            <div class="empty-text">还没有 Skills</div>
+            <div class="empty-sub">Skills 是可复用的知识模板，在生成软件时自动注入</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================== 运维管理页 ======================== -->
+    <div id="page-devops" class="page hidden">
+      <div class="page-header">
+        <div>
+          <div class="page-label">运维管理</div>
+          <h1 class="page-heading">运行日志</h1>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadOpsProjects()">刷新列表</button>
+      </div>
+
+      <div class="ops-layout">
+        <div class="ops-sidebar">
+          <div class="ops-sidebar-head">项目列表</div>
+          <div id="ops-project-list"></div>
+          <div id="ops-empty" class="empty-state hidden" style="padding:30px">
+            <div class="empty-sub">暂无项目</div>
+          </div>
+        </div>
+
+        <div class="ops-main">
+          <div id="ops-placeholder" style="text-align:center;padding:60px;color:var(--muted);font-size:14px">
+            ← 选择左侧项目查看日志
+          </div>
+
+          <div id="ops-log-panel" class="hidden">
+            <div class="ops-main-header" style="margin-bottom:16px">
+              <div>
+                <div id="ops-proj-name" style="font-size:16px;font-weight:500;color:#fff"></div>
+                <div id="ops-proj-status" style="margin-top:4px"></div>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">刷新日志</button>
+                <button class="btn btn-ghost btn-sm" onclick="clearLogView()">清空视图</button>
+              </div>
+            </div>
+
+            <div style="font-size:11px;font-family:var(--mono);color:var(--accent);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">
+              运行日志
+            </div>
+            <div id="ops-log-viewer" class="log-viewer">
+              <div style="color:var(--muted);text-align:center;padding:20px">等待加载...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ======================== 模态框区 ======================== -->
+
+<!-- 新建项目模态框 -->
+<div id="modal-new-project" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">新建项目</div>
+      <button class="modal-close" onclick="closeModal('modal-new-project')">×</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">需求描述 <span class="form-required">*</span></label>
+      <textarea class="form-textarea" id="new-project-desc" rows="5"
+        placeholder="描述你想构建的软件，例如：&#10;&#10;我需要一个任务管理 Web 应用，支持创建、删除、标记完成任务，有简洁的界面，使用 Python FastAPI 后端..."></textarea>
+      <div class="form-hint">至少 10 个字符，描述越详细，生成质量越高</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">项目空间路径</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="form-input" id="new-project-workspace"
+          placeholder="留空则自动生成，例如：/Users/me/projects/my-app"
+          style="flex:1" />
+        <button class="btn btn-ghost btn-sm" type="button" onclick="pickFolder()" title="打开系统文件夹选择框">
+          📁 浏览
+        </button>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="fillDefaultWorkspace()" title="填入默认路径">
+          自动
+        </button>
+      </div>
+      <div class="form-hint">
+        填容器内绝对路径（推荐 <code style="font-size:11px">/app/projects/your-name</code>）可在宿主机直接访问。<br>
+        <span id="workspace-host-hint" style="color:var(--accent)">容器内 /app/projects/ → 宿主机 ./projects/</span>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-new-project')">取消</button>
+      <button class="btn btn-primary" id="start-build-btn" onclick="startBuild()">开始构建 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- 项目详情模态框 -->
+<div id="modal-project-detail" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="detail-title">项目详情</div>
+      <button class="modal-close" onclick="closeModal('modal-project-detail')">×</button>
+    </div>
+
+    <!-- 构建中实时视图 -->
+    <div id="detail-building" class="hidden">
+      <!-- 流水线 -->
+      <div style="margin-bottom:20px">
+        <div class="page-label" style="margin-bottom:12px">构建流水线</div>
+        <div class="pipeline-track" id="detail-pipeline"></div>
+      </div>
+
+      <!-- 澄清面板 -->
+      <div id="detail-clarify" class="clarify-banner hidden">
+        <h4>💬 需要进一步了解</h4>
+        <div class="clarify-questions" id="detail-clarify-questions"></div>
+        <div class="form-group" style="margin-bottom:12px">
+          <textarea class="form-textarea" id="detail-clarify-answer" rows="3" placeholder="请回答上述问题..."></textarea>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="submitClarify()">提交回答</button>
+      </div>
+
+      <!-- LLM 实时输出 -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div class="page-label" style="margin-bottom:0">实时输出</div>
+          <button class="btn btn-ghost btn-xs" onclick="document.getElementById('detail-llm-output').textContent=''">清空</button>
+        </div>
+        <div class="llm-output" id="detail-llm-output"></div>
+      </div>
+
+      <!-- 完成横幅 -->
+      <div id="detail-done" class="done-banner hidden">
+        <h3>✅ 构建完成！</h3>
+        <p id="detail-done-msg">软件已生成完毕</p>
+        <div style="display:flex;gap:10px;justify-content:center">
+          <button class="btn btn-primary btn-sm" id="detail-view-files-btn">查看文件</button>
+          <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-project-detail');loadProjects()">返回列表</button>
+        </div>
+      </div>
+
+      <!-- 错误横幅 -->
+      <div id="detail-error" class="error-banner hidden" style="margin-top:16px">
+        <h4>❌ 构建出错</h4>
+        <p id="detail-error-msg"></p>
+      </div>
+    </div>
+
+    <!-- 已完成项目视图 -->
+    <div id="detail-done-view" class="hidden">
+      <div id="detail-pipeline-static" style="margin-bottom:24px">
+        <div class="page-label" style="margin-bottom:12px">构建流水线</div>
+        <div class="pipeline-track" id="detail-pipeline-static-track"></div>
+      </div>
+
+      <div id="detail-artifacts" style="margin-bottom:24px">
+        <div class="page-label" style="margin-bottom:12px">各阶段交付件</div>
+        <div id="detail-artifacts-list"></div>
+      </div>
+
+      <div id="detail-workspace-info" style="margin-bottom:24px">
+        <div class="page-label" style="margin-bottom:8px">项目空间</div>
+        <div style="display:flex;align-items:center;gap:10px;background:rgba(0,0,0,0.2);border:0.5px solid var(--border);border-radius:8px;padding:10px 14px">
+          <span style="font-size:16px">📁</span>
+          <code id="detail-workspace-path" style="font-family:var(--mono);font-size:12px;color:var(--accent);word-break:break-all"></code>
+        </div>
+      </div>
+
+      <div id="detail-files-section">
+        <div class="page-label" style="margin-bottom:12px">生成文件</div>
+        <div class="file-list" id="detail-files-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LLM 供应商 新建/编辑模态框 -->
+<div id="modal-provider" class="modal-overlay hidden">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <div class="modal-title" id="provider-modal-title">添加 LLM 供应商</div>
+      <button class="modal-close" onclick="closeModal('modal-provider')">×</button>
+    </div>
+    <input type="hidden" id="provider-edit-id" />
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">供应商名称 <span class="form-required">*</span></label>
+        <input class="form-input" id="provider-name" placeholder="例如：DeepSeek API" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">类型</label>
+        <select class="form-select" id="provider-type" onchange="onProviderTypeChange()">
+          <option value="openai_compatible">OpenAI 兼容（Ollama/DeepSeek/Qwen 等）</option>
+          <option value="anthropic">Anthropic（Claude）</option>
+          <option value="openai">OpenAI</option>
+        </select>
+      </div>
+    </div>
+    <div id="provider-url-row" class="form-group">
+      <label class="form-label">Base URL <span class="form-required">*</span></label>
+      <input class="form-input" id="provider-base-url" placeholder="https://api.example.com/v1" />
+      <div class="form-hint">OpenAI 兼容服务的接入地址，Anthropic/OpenAI 可留空</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">API Key</label>
+      <input class="form-input" id="provider-api-key" type="password" placeholder="sk-..." autocomplete="new-password" />
+      <div class="form-hint">本地服务（Ollama）填写任意非空字符串即可</div>
+    </div>
+    <div class="form-group">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <label class="form-label" style="margin:0">可用模型列表</label>
+        <button class="btn btn-ghost btn-sm" id="fetch-models-btn" onclick="fetchProviderModels()" style="font-size:12px;padding:3px 10px">获取模型列表</button>
+      </div>
+      <textarea class="form-input" id="provider-models" rows="4" readonly
+        placeholder="点击「获取模型列表」自动填入"
+        style="resize:vertical;font-family:var(--mono);font-size:12px;background:var(--surface2,#1e1e2e);color:var(--muted);cursor:default"></textarea>
+      <div id="fetch-models-status" style="font-size:11px;color:var(--muted);min-height:14px;margin-top:3px"></div>
+    </div>
+    <!-- 连通性测试 -->
+    <div style="border:0.5px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="font-size:13px;color:var(--text2);font-weight:500">连通性测试</span>
+        <div style="flex:1"></div>
+        <select class="form-select" id="provider-test-model" style="width:200px;padding:5px 10px;font-size:12px">
+          <option value="">— 请先获取模型列表 —</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" id="provider-test-btn" onclick="testProvider()">测试</button>
+      </div>
+      <div id="provider-test-result" style="font-size:12px;font-family:var(--mono);color:var(--muted);min-height:18px"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-provider')">取消</button>
+      <button class="btn btn-primary" onclick="saveProvider()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Skill 新建/编辑模态框 -->
+<div id="modal-skill" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="skill-modal-title">新建 Skill</div>
+      <button class="modal-close" onclick="closeModal('modal-skill')">×</button>
+    </div>
+    <input type="hidden" id="skill-edit-id" />
+    <div class="form-group">
+      <label class="form-label">名称 <span class="form-required">*</span></label>
+      <input class="form-input" id="skill-name" placeholder="例如：JWT 认证模板" />
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">分类</label>
+        <select class="form-select" id="skill-category">
+          <option value="general">通用</option>
+          <option value="frontend">前端</option>
+          <option value="backend">后端</option>
+          <option value="testing">测试</option>
+          <option value="devops">DevOps</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">状态</label>
+        <div style="padding-top:10px">
+          <label class="toggle"><input type="checkbox" id="skill-active" checked /><span class="toggle-slider"></span></label>
+          <span style="font-size:13px;color:var(--muted);margin-left:10px">启用</span>
+        </div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">描述</label>
+      <input class="form-input" id="skill-desc" placeholder="简短描述此 Skill 的用途" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">内容（Prompt 模板 / 技术规范）</label>
+      <textarea class="form-textarea" id="skill-content" rows="8"
+        placeholder="在这里写入 Skill 内容，例如 JWT 认证的实现规范、代码模板等...&#10;&#10;这些内容会在相关阶段自动注入到 Agent 的提示中。"></textarea>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-skill')">取消</button>
+      <button class="btn btn-primary" onclick="saveSkill()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 导入 Skills 模态框 -->
+<div id="modal-import-skills" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">导入 Skills</div>
+      <button class="modal-close" onclick="closeModal('modal-import-skills')">×</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">粘贴 JSON 数据</label>
+      <textarea class="form-textarea" id="import-skills-json" rows="12"
+        placeholder='[&#10;  {&#10;    "name": "JWT 认证",&#10;    "description": "...",&#10;    "category": "backend",&#10;    "content": "...",&#10;    "is_active": true&#10;  }&#10;]'></textarea>
+      <div class="form-hint">JSON 数组格式，每项需包含 name、category、content 字段</div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-import-skills')">取消</button>
+      <button class="btn btn-primary" onclick="importSkills()">导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast 容器 -->
+<div class="toast-container" id="toast-container"></div>
+
+<script src="app.js?v=7"></script>
+</body>
+</html>

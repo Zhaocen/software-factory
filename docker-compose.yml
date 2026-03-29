@@ -1,0 +1,53 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: sf-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-forgepwd}
+      MYSQL_DATABASE: ${DB_NAME:-software_factory}
+      # 注意：MYSQL_USER 不能设为 root（root 已存在），
+      # 此处创建独立应用账号，应用连接时使用此账号
+      MYSQL_USER: ${DB_USER:-forge}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-forgepwd}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - ${MYSQL_DATA_DIR:-./data/mysql}:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-time-zone=+08:00
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost",
+             "-u", "${DB_USER:-forge}", "-p${DB_PASSWORD:-forgepwd}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  app:
+    build: .
+    container_name: sf-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${PROJECTS_DIR:-./projects}:/app/projects  # 项目输出目录，PROJECTS_DIR 可在 .env 中自定义
+      - /var/run/docker.sock:/var/run/docker.sock   # Docker-in-Docker（沙箱测试）
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+      # 容器内 DB_HOST 必须指向 mysql 服务名，覆盖 .env 中的 localhost
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-software_factory}
+      DB_USER: ${DB_USER:-forge}
+      DB_PASSWORD: ${DB_PASSWORD:-forgepwd}
+      CONFIG_YAML_PATH: /app/config.yaml
+      # 把宿主机项目目录路径传入容器，供前端展示"宿主机路径"提示
+      PROJECTS_HOST_DIR: ${PROJECTS_DIR:-./projects}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+# MYSQL_DATA_DIR  默认 ./data/mysql（宿主机路径），可在 .env 中覆盖
+# PROJECTS_DIR    默认 ./projects（宿主机路径），项目生成文件存放位置，可改为绝对路径

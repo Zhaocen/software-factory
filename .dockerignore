@@ -1,0 +1,21 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+*.egg-info
+dist/
+build/
+
+# 运行时数据（不打入镜像，通过 volume 挂载）
+projects/
+skills.json
+.env
+
+# 开发文件
+tests/
+scripts/
+*.md
+.git
+.gitignore

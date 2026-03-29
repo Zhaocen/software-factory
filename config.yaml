@@ -1,0 +1,72 @@
+# config.yaml — AI Software Factory 运行时配置
+#
+# LLM 供应商统一管理：在 llm_providers 中定义供应商，
+# agents 中只需引用供应商 ID 和选择模型。
+
+# ---- LLM 供应商列表 ----
+llm_providers:
+  - id: scnet-minimax
+    name: "MiniMax (scnet)"
+    provider: openai_compatible
+    base_url: https://api.scnet.cn/api/llm/v1
+    api_key: sk-MjY3LTExMzM5MDgxODMyLTE3NzQ0MTM4NjQ0NTM=
+    models:
+      - MiniMax-M2.5
+      - MiniMax-Text-01
+
+# ---- Agent 模型分配 ----
+# provider_id 引用上方 llm_providers 中的 id
+# model 必须在该供应商的 models 列表中（也可填写任意模型名）
+agents:
+  requirements:
+    provider_id: scnet-minimax
+    model: MiniMax-M2.5
+    temperature: 0.3
+    max_tokens: 16384
+
+  architecture:
+    provider_id: scnet-minimax
+    model: MiniMax-M2.5
+    temperature: 0.2
+    max_tokens: 16384
+
+  ui_ux:
+    provider_id: scnet-minimax
+    model: MiniMax-M2.5
+    temperature: 0.4
+    max_tokens: 16384
+
+  coding:
+    provider_id: scnet-minimax
+    model: MiniMax-M2.5
+    temperature: 0.1
+    max_tokens: 16384
+
+  testing:
+    provider_id: scnet-minimax
+    model: MiniMax-M2.5
+    temperature: 0.1
+    max_tokens: 16384
+
+  devops:
+    provider_id: scnet-minimax
+    model: MiniMax-M2.5
+    temperature: 0.1
+    max_tokens: 16384
+
+# ---- 重试配置 ----
+retry:
+  max_retries: 3
+  retry_delay: 2.0
+
+# ---- Docker 沙箱配置 ----
+docker:
+  mem_limit: "512m"
+  cpu_quota: 50000
+  timeout_seconds: 120
+  network_disabled: true
+
+# ---- 输出配置 ----
+output:
+  base_dir: "projects"
+  git_init: true
