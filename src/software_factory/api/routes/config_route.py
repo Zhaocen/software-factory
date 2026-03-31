@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 class LLMProviderConfig(BaseModel):
     id: str = ""
     name: str = ""
-    provider: str = "openai_compatible"   # anthropic / openai / openai_compatible
+    provider: str = "openai_compatible"  # anthropic / openai / openai_compatible
     base_url: str = ""
     api_key: str = ""
     models: list[str] = []
@@ -69,6 +69,7 @@ class GitConfig(BaseModel):
 
 # ─── 全量配置 ─────────────────────────────────────────────────────────────────
 
+
 @router.get("/", response_model=dict[str, Any])
 async def get_config(session: AsyncSession = Depends(db_session)):
     """获取完整配置"""
@@ -88,6 +89,7 @@ async def update_config(body: dict[str, Any], session: AsyncSession = Depends(db
 
 
 # ─── Agents ──────────────────────────────────────────────────────────────────
+
 
 @router.get("/agents", response_model=dict[str, Any])
 async def get_agents_config(session: AsyncSession = Depends(db_session)):
@@ -113,6 +115,7 @@ async def update_agent_config(
 
 # ─── Docker ──────────────────────────────────────────────────────────────────
 
+
 @router.get("/docker", response_model=DockerConfig)
 async def get_docker_config(session: AsyncSession = Depends(db_session)):
     data = await get_section(session, "docker") or {}
@@ -127,6 +130,7 @@ async def update_docker_config(body: DockerConfig, session: AsyncSession = Depen
 
 # ─── Git ─────────────────────────────────────────────────────────────────────
 
+
 @router.get("/git", response_model=GitConfig)
 async def get_git_config(session: AsyncSession = Depends(db_session)):
     data = await get_section(session, "git") or {}
@@ -140,6 +144,7 @@ async def update_git_config(body: GitConfig, session: AsyncSession = Depends(db_
 
 
 # ─── LLM Providers ───────────────────────────────────────────────────────────
+
 
 @router.get("/llm-providers", response_model=list[dict])
 async def list_llm_providers(session: AsyncSession = Depends(db_session)):
@@ -193,6 +198,7 @@ async def delete_llm_provider(provider_id: str, session: AsyncSession = Depends(
 
 # ─── 连通性测试 & 模型列表获取 ──────────────────────────────────────────────────
 
+
 class ProviderTestRequest(BaseModel):
     provider: str = "openai_compatible"
     base_url: str = ""
@@ -207,12 +213,16 @@ async def fetch_provider_models(body: ProviderTestRequest):
 
     try:
         if body.provider in ("openai", "openai_compatible"):
-            base = (body.base_url.rstrip("/") if body.base_url else "https://api.openai.com/v1")
+            base = body.base_url.rstrip("/") if body.base_url else "https://api.openai.com/v1"
             headers = {"Authorization": f"Bearer {body.api_key or 'EMPTY'}"}
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(f"{base}/models", headers=headers)
             if resp.status_code != 200:
-                return {"ok": False, "models": [], "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+                return {
+                    "ok": False,
+                    "models": [],
+                    "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
+                }
             data = resp.json()
             models = sorted(
                 [m["id"] for m in data.get("data", []) if isinstance(m, dict) and m.get("id")],
@@ -227,13 +237,17 @@ async def fetch_provider_models(body: ProviderTestRequest):
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get("https://api.anthropic.com/v1/models", headers=headers)
             if resp.status_code != 200:
-                return {"ok": False, "models": [], "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+                return {
+                    "ok": False,
+                    "models": [],
+                    "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
+                }
             data = resp.json()
             models = [m["id"] for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
             return {"ok": True, "models": models}
 
         else:
-            return {"ok": False, "models": [], "error": f"不支持自动获取该供应商类型的模型列表"}
+            return {"ok": False, "models": [], "error": "不支持自动获取该供应商类型的模型列表"}
 
     except Exception as e:
         return {"ok": False, "models": [], "error": str(e)[:200]}
@@ -249,22 +263,28 @@ async def test_llm_provider(body: ProviderTestRequest):
     try:
         if body.provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
+
             llm = ChatAnthropic(
-                model=body.model, max_tokens=16,
+                model=body.model,
+                max_tokens=16,
                 api_key=body.api_key or "",
             )
         elif body.provider == "openai":
             from langchain_openai import ChatOpenAI
+
             llm = ChatOpenAI(
-                model=body.model, max_tokens=16,
+                model=body.model,
+                max_tokens=16,
                 api_key=body.api_key or "",
             )
         elif body.provider == "openai_compatible":
             if not body.base_url:
                 raise HTTPException(status_code=400, detail="OpenAI 兼容类型需要填写 Base URL")
             from langchain_openai import ChatOpenAI
+
             llm = ChatOpenAI(
-                model=body.model, max_tokens=16,
+                model=body.model,
+                max_tokens=16,
                 base_url=body.base_url,
                 api_key=body.api_key or "EMPTY",
             )
@@ -272,6 +292,7 @@ async def test_llm_provider(body: ProviderTestRequest):
             raise HTTPException(status_code=400, detail=f"未知供应商类型: {body.provider}")
 
         from langchain_core.messages import HumanMessage
+
         resp = await llm.ainvoke([HumanMessage(content="Say 'ok'")])
         elapsed = round((time.time() - t0) * 1000)
         return {
@@ -292,10 +313,12 @@ async def test_llm_provider(body: ProviderTestRequest):
 
 # ─── 辅助端点 ─────────────────────────────────────────────────────────────────
 
+
 @router.get("/projects-host-dir")
 async def get_projects_host_dir():
     """返回宿主机项目目录路径（从环境变量 PROJECTS_HOST_DIR 读取）"""
     import os
+
     host_dir = os.environ.get("PROJECTS_HOST_DIR", "./projects")
     return {"host_dir": host_dir}
 
@@ -324,10 +347,12 @@ async def pick_folder():
 
 # ─── 内部工具 ─────────────────────────────────────────────────────────────────
 
+
 def _invalidate_graph_cache() -> None:
     """让 factory 重建 graph，下次请求时使用最新配置"""
     try:
         import software_factory.api.routes.factory as _f
+
         _f._graph = None
     except Exception:
         pass

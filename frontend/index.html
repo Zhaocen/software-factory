@@ -121,6 +121,11 @@
       <!-- Docker 配置 -->
       <div id="tab-docker" class="config-panel">
         <div class="card">
+          <div class="form-group">
+            <label class="form-label">Docker 连接地址</label>
+            <input class="form-input" id="docker-host" placeholder="留空使用本机 Docker（unix:///var/run/docker.sock）" />
+            <div class="form-hint">远程 Docker 填写如 tcp://192.168.1.100:2375，留空则自动使用环境默认值</div>
+          </div>
           <div class="form-row">
             <div class="form-group">
               <label class="form-label">内存限制</label>
@@ -136,14 +141,11 @@
           <div class="form-row">
             <div class="form-group">
               <label class="form-label">超时（秒）</label>
-              <input class="form-input" id="docker-timeout" type="number" placeholder="120" />
+              <input class="form-input" id="docker-timeout" type="number" placeholder="180" />
+              <div class="form-hint">包含安装依赖和运行测试的总超时</div>
             </div>
-            <div class="form-group">
-              <label class="form-label">禁用网络</label>
-              <div style="padding-top:10px">
-                <label class="toggle"><input type="checkbox" id="docker-network" /><span class="toggle-slider"></span></label>
-                <span style="font-size:13px;color:var(--muted);margin-left:10px">沙箱容器禁止访问网络</span>
-              </div>
+            <div class="form-group" style="visibility:hidden">
+              <!-- 占位，保持布局对齐 -->
             </div>
           </div>
           <div style="display:flex;justify-content:flex-end">
@@ -215,45 +217,30 @@
       <div class="page-header">
         <div>
           <div class="page-label">运维管理</div>
-          <h1 class="page-heading">运行日志</h1>
+          <h1 class="page-heading">系统日志</h1>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="loadOpsProjects()">刷新列表</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="syslog-level" class="form-select" style="width:100px;padding:5px 10px;font-size:12px" onchange="loadSysLogs()">
+            <option value="">全部</option>
+            <option value="INFO">INFO</option>
+            <option value="WARNING">WARNING</option>
+            <option value="ERROR">ERROR</option>
+            <option value="DEBUG">DEBUG</option>
+          </select>
+          <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="syslog-auto-refresh" onchange="toggleSyslogAutoRefresh()" />
+            自动刷新
+          </label>
+          <button class="btn btn-ghost btn-sm" onclick="loadSysLogs()">刷新</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('ops-log-viewer').innerHTML=''">清空视图</button>
+        </div>
       </div>
 
-      <div class="ops-layout">
-        <div class="ops-sidebar">
-          <div class="ops-sidebar-head">项目列表</div>
-          <div id="ops-project-list"></div>
-          <div id="ops-empty" class="empty-state hidden" style="padding:30px">
-            <div class="empty-sub">暂无项目</div>
-          </div>
-        </div>
-
-        <div class="ops-main">
-          <div id="ops-placeholder" style="text-align:center;padding:60px;color:var(--muted);font-size:14px">
-            ← 选择左侧项目查看日志
-          </div>
-
-          <div id="ops-log-panel" class="hidden">
-            <div class="ops-main-header" style="margin-bottom:16px">
-              <div>
-                <div id="ops-proj-name" style="font-size:16px;font-weight:500;color:#fff"></div>
-                <div id="ops-proj-status" style="margin-top:4px"></div>
-              </div>
-              <div style="display:flex;gap:8px">
-                <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">刷新日志</button>
-                <button class="btn btn-ghost btn-sm" onclick="clearLogView()">清空视图</button>
-              </div>
-            </div>
-
-            <div style="font-size:11px;font-family:var(--mono);color:var(--accent);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">
-              运行日志
-            </div>
-            <div id="ops-log-viewer" class="log-viewer">
-              <div style="color:var(--muted);text-align:center;padding:20px">等待加载...</div>
-            </div>
-          </div>
-        </div>
+      <div style="margin-bottom:8px;font-size:11px;color:var(--muted)">
+        显示最近 <span id="syslog-count">0</span> 条日志（应用内存缓冲，重启后清空）
+      </div>
+      <div id="ops-log-viewer" class="log-viewer" style="height:calc(100vh - 180px)">
+        <div style="color:var(--muted);text-align:center;padding:40px">加载中...</div>
       </div>
     </div>
 
@@ -361,7 +348,19 @@
 
       <div id="detail-artifacts" style="margin-bottom:24px">
         <div class="page-label" style="margin-bottom:12px">各阶段交付件</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">点击任意阶段卡片可查看该阶段的运行日志</div>
         <div id="detail-artifacts-list"></div>
+      </div>
+
+      <!-- 阶段日志面板 -->
+      <div id="detail-stage-log-panel" class="hidden" style="margin-bottom:24px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="page-label" style="margin-bottom:0">
+            阶段日志：<span id="detail-stage-log-title" style="color:var(--accent)"></span>
+          </div>
+          <button class="btn btn-ghost btn-xs" onclick="document.getElementById('detail-stage-log-panel').classList.add('hidden')">关闭</button>
+        </div>
+        <div id="detail-stage-log-viewer" class="log-viewer" style="max-height:320px"></div>
       </div>
 
       <div id="detail-workspace-info" style="margin-bottom:24px">

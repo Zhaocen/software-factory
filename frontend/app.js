@@ -30,7 +30,7 @@ function navigate(page) {
 
   if (page === 'projects') loadProjects();
   if (page === 'config') loadConfig();
-  if (page === 'devops') loadOpsProjects();
+  if (page === 'devops') loadSysLogs();
 }
 
 window.addEventListener('hashchange', () => {
@@ -310,7 +310,7 @@ async function openProjectDetail(projectId) {
       document.getElementById('detail-done-view').classList.remove('hidden');
 
       renderPipelineTrack(project.stages, 'detail-pipeline-static-track');
-      renderArtifacts(project.stages);
+      renderArtifacts(project.stages, projectId);
       renderFileList(project.files, projectId);
 
       // 显示 workspace 路径
@@ -324,7 +324,7 @@ async function openProjectDetail(projectId) {
   }
 }
 
-function renderArtifacts(stages) {
+function renderArtifacts(stages, projectId) {
   const container = document.getElementById('detail-artifacts-list');
   container.innerHTML = '';
   if (!stages) return;
@@ -350,9 +350,13 @@ function renderArtifacts(stages) {
       summaryHtml = `<span style="color:var(--muted);font-size:13px">${status === 'pending' ? '尚未执行' : status === 'running' ? '执行中...' : '无摘要数据'}</span>`;
     }
 
+    const escapedProjectId = (projectId || '').replace(/'/g, "\\'");
+    const escapedKey = key.replace(/'/g, "\\'");
+    const escapedName = (meta.name || '').replace(/'/g, "\\'");
+
     container.innerHTML += `
       <div class="artifact-card">
-        <div class="artifact-header" onclick="this.parentElement.classList.toggle('expanded')">
+        <div class="artifact-header" onclick="loadStageLog('${escapedProjectId}', '${escapedKey}', '${escapedName}'); this.parentElement.classList.toggle('expanded')">
           <div class="artifact-title">
             <span>${meta.icon}</span>
             <span>${meta.name}</span>
@@ -899,18 +903,18 @@ async function saveAgentsConfig() {
 }
 
 function renderDockerForm(docker) {
+  document.getElementById('docker-host').value = docker.docker_host || '';
   document.getElementById('docker-mem').value = docker.mem_limit || '512m';
   document.getElementById('docker-cpu').value = docker.cpu_quota || 50000;
-  document.getElementById('docker-timeout').value = docker.timeout_seconds || 120;
-  document.getElementById('docker-network').checked = docker.network_disabled !== false;
+  document.getElementById('docker-timeout').value = docker.timeout_seconds || 180;
 }
 
 async function saveDockerConfig() {
   const body = {
+    docker_host: document.getElementById('docker-host').value.trim(),
     mem_limit: document.getElementById('docker-mem').value,
     cpu_quota: parseInt(document.getElementById('docker-cpu').value),
     timeout_seconds: parseInt(document.getElementById('docker-timeout').value),
-    network_disabled: document.getElementById('docker-network').checked,
   };
   try {
     const res = await fetch('/api/config/docker', {
@@ -1094,96 +1098,99 @@ async function importSkills() {
 }
 
 // ============================================================
-// 运维管理页
+// 运维管理页 - 系统日志
 // ============================================================
-async function loadOpsProjects() {
-  const list = document.getElementById('ops-project-list');
-  const empty = document.getElementById('ops-empty');
-  list.innerHTML = '';
+let _syslogTimer = null;
 
+async function loadSysLogs() {
+  const viewer = document.getElementById('ops-log-viewer');
+  const level = document.getElementById('syslog-level').value;
   try {
-    const res = await fetch('/api/projects/');
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-    const projects = await res.json();
-
-    if (projects.length === 0) {
-      empty.classList.remove('hidden');
+    const url = `/api/system/logs?limit=500${level ? '&level=' + level : ''}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const logs = data.logs || [];
+    document.getElementById('syslog-count').textContent = logs.length;
+    if (!logs.length) {
+      viewer.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">暂无日志</div>';
       return;
     }
-    empty.classList.add('hidden');
-
-    projects.forEach(p => {
-      const div = document.createElement('div');
-      div.className = `ops-item ${p.id === currentOpsProjectId ? 'active' : ''}`;
-      div.dataset.id = p.id;
-      div.innerHTML = `
-        <div class="ops-item-name">${escHtml(p.name || p.id)}</div>
-        <div class="ops-item-meta">
-          ${statusPill(p.status)}
-          <span>${formatDate(p.created_at)}</span>
-        </div>
-      `;
-      div.addEventListener('click', () => selectOpsProject(p));
-      list.appendChild(div);
-    });
+    const levelColor = { INFO: '#c8cde4', WARNING: '#e8a84a', ERROR: '#f87171', DEBUG: '#888' };
+    viewer.innerHTML = logs.map(entry => {
+      const color = levelColor[entry.level] || '#c8cde4';
+      return `<div class="log-entry">
+        <span class="log-ts">${escHtml(entry.ts || '')}</span>
+        <span style="color:${color};font-family:var(--mono);font-size:12px">[${escHtml(entry.level)}] <span style="color:var(--muted)">${escHtml(entry.name)}</span>: ${escHtml(entry.message)}</span>
+      </div>`;
+    }).join('');
+    viewer.scrollTop = viewer.scrollHeight;
   } catch (e) {
-    toast('加载失败：' + e.message, 'error');
+    viewer.innerHTML = `<div style="color:var(--danger);padding:8px">加载失败：${e.message}</div>`;
   }
 }
 
-function selectOpsProject(project) {
-  currentOpsProjectId = project.id;
-  document.querySelectorAll('.ops-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.id === project.id);
-  });
-
-  document.getElementById('ops-placeholder').classList.add('hidden');
-  document.getElementById('ops-log-panel').classList.remove('hidden');
-  document.getElementById('ops-proj-name').textContent = project.name || project.id;
-  document.getElementById('ops-proj-status').innerHTML = statusPill(project.status);
-
-  loadProjectLogs(project.id);
+function toggleSyslogAutoRefresh() {
+  const checked = document.getElementById('syslog-auto-refresh').checked;
+  if (checked) {
+    loadSysLogs();
+    _syslogTimer = setInterval(loadSysLogs, 3000);
+  } else {
+    clearInterval(_syslogTimer);
+    _syslogTimer = null;
+  }
 }
 
-async function loadProjectLogs(projectId) {
-  const viewer = document.getElementById('ops-log-viewer');
+// ============================================================
+// 项目阶段日志
+// ============================================================
+let _currentDetailProjectId = null;
+
+async function loadStageLog(projectId, stageName, stageDisplayName) {
+  _currentDetailProjectId = projectId;
+  const panel = document.getElementById('detail-stage-log-panel');
+  const viewer = document.getElementById('detail-stage-log-viewer');
+  const title = document.getElementById('detail-stage-log-title');
+
+  title.textContent = stageDisplayName;
+  panel.classList.remove('hidden');
   viewer.innerHTML = '<div style="color:var(--muted);padding:8px">加载中...</div>';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   try {
-    const res = await fetch(`/api/projects/${projectId}/logs`);
+    const res = await fetch(`/api/projects/${projectId}/logs?limit=500&stage=${encodeURIComponent(stageName)}`);
     const data = await res.json();
-    renderLogs(data.logs || []);
+    const logs = data.logs || [];
+    if (!logs.length) {
+      viewer.innerHTML = '<div style="color:var(--muted);padding:8px">该阶段暂无日志记录</div>';
+      return;
+    }
+    const typeColor = {
+      stage_start: '#818cf8', stage_end: '#10b981', stage_error: '#f87171',
+      file_created: '#34d399', skills_applied: '#a78bfa', test_result: '#60a5fa',
+      test_running: '#60a5fa', module_complete: '#34d399', module_failed: '#f87171',
+      git_commit: '#10b981', coding_summary: '#c8cde4', error: '#f87171', system: '#888',
+    };
+    viewer.innerHTML = logs.map(entry => {
+      const ts = (entry.ts || '').substring(11, 19) || (entry.ts || '');
+      const type = entry.type || 'system';
+      const msg = entry.message || '';
+      const color = typeColor[type] || '#c8cde4';
+      let extra = '';
+      if (entry.extra && Object.keys(entry.extra).length > 0) {
+        extra = `<div style="color:var(--muted);font-size:11px;margin-top:2px;padding-left:80px;font-family:var(--mono)">${escHtml(JSON.stringify(entry.extra))}</div>`;
+      }
+      return `<div class="log-entry" style="flex-direction:column;align-items:flex-start">
+        <div>
+          <span class="log-ts">${escHtml(ts)}</span>
+          <span style="display:inline-block;padding:0 6px;border-radius:8px;font-size:10px;background:rgba(255,255,255,0.06);color:${color};margin-right:6px">${escHtml(type)}</span>
+          <span style="font-size:12px;color:#c8cde4">${escHtml(msg)}</span>
+        </div>${extra}
+      </div>`;
+    }).join('');
+    viewer.scrollTop = 0;
   } catch (e) {
-    viewer.innerHTML = `<div style="color:var(--danger)">加载失败：${e.message}</div>`;
+    viewer.innerHTML = `<div style="color:var(--danger);padding:8px">加载失败：${e.message}</div>`;
   }
-}
-
-function renderLogs(logs) {
-  const viewer = document.getElementById('ops-log-viewer');
-  if (!logs || logs.length === 0) {
-    viewer.innerHTML = '<div style="color:var(--muted);padding:8px">暂无日志</div>';
-    return;
-  }
-
-  viewer.innerHTML = logs.map(entry => {
-    const ts = entry.ts ? entry.ts.substring(11, 19) : '';
-    const type = entry.type || 'system';
-    const msg = entry.message || entry.content || JSON.stringify(entry);
-    return `<div class="log-entry">
-      <span class="log-ts">${escHtml(ts)}</span>
-      <span class="log-text log-${type}">[${type}] ${escHtml(msg)}</span>
-    </div>`;
-  }).join('');
-
-  viewer.scrollTop = viewer.scrollHeight;
-}
-
-function refreshLogs() {
-  if (currentOpsProjectId) loadProjectLogs(currentOpsProjectId);
-}
-
-function clearLogView() {
-  document.getElementById('ops-log-viewer').innerHTML = '<div style="color:var(--muted);padding:8px">已清空视图（服务器日志未删除）</div>';
 }
 
 // ============================================================

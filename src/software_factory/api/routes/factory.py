@@ -150,6 +150,7 @@ async def start_factory(request: StartRequest, background: BackgroundTasks):
         "error": None,
         "retry_count": 0,
         "max_retries": rc.max_retries,
+        "fix_context": None,
         "output_dir": workspace,
         "progress_events": [],
     }

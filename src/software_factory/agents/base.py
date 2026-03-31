@@ -33,6 +33,7 @@ class BaseAgent(ABC):
             openai_api_key=settings.openai_api_key,
         )
 
+    # ── Skill 文本注入（兼容旧有流程，仍保留） ───────────────────────────────────
     async def _load_relevant_skills(self) -> tuple[str, list[str]]:
         """从数据库加载相关 Skills，返回 (格式化文本, skill名列表)"""
         if not self.skill_categories:
@@ -63,6 +64,136 @@ class BaseAgent(ABC):
             logger.warning("Agent [%s] failed to load skills: %s", self.agent_name, e)
             return "", []
 
+    # ── @tool 工具集获取 ─────────────────────────────────────────────────────────
+    def _get_skill_tools(self) -> list:
+        """根据 skill_categories 返回对应的 LangChain @tool 工具列表"""
+        if not self.skill_categories:
+            return []
+        from software_factory.tools.skill_tools import get_tools_for_categories
+        tools = get_tools_for_categories(self.skill_categories)
+        logger.debug(
+            "Agent [%s] skill tools: %s",
+            self.agent_name,
+            [t.name for t in tools],
+        )
+        return tools
+
+    # ── 带工具调用的 LLM 推理循环（LangGraph ToolNode 驱动）─────────────────────
+    async def _run_with_tools(
+        self,
+        system_prompt: str,
+        user_msg: str,
+        tools: list,
+        max_rounds: int = 5,
+    ) -> tuple[list[dict], str]:
+        """
+        使用 bind_tools + ToolNode 运行 ReAct 推理循环。
+
+        流程：
+          1. LLM 绑定工具（bind_tools）
+          2. 发送 system + user 消息
+          3. 若 LLM 返回 tool_calls → ToolNode 执行 → 结果追加消息 → 继续
+          4. 直到无 tool_calls 或达到 max_rounds
+
+        Returns:
+            tool_call_logs: 每次工具调用的详细记录（用于 progress_events）
+            tool_context:   所有工具结果拼接成的上下文字符串（追加到后续 LLM 提示）
+        """
+        if not tools:
+            return [], ""
+
+        from langchain_core.messages import HumanMessage, SystemMessage
+        from langgraph.prebuilt import ToolNode
+
+        try:
+            tool_llm = self.llm.bind_tools(tools)
+        except Exception as e:
+            logger.warning(
+                "Agent [%s] bind_tools failed: %s — skipping tool phase", self.agent_name, e
+            )
+            return [], ""
+
+        tool_executor = ToolNode(tools)
+        messages: list = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_msg),
+        ]
+        tool_call_logs: list[dict] = []
+
+        for round_num in range(max_rounds):
+            try:
+                response = await tool_llm.ainvoke(messages)
+            except Exception as e:
+                logger.warning("Agent [%s] tool-LLM call failed (round %d): %s", self.agent_name, round_num, e)
+                break
+
+            messages.append(response)
+
+            if not getattr(response, "tool_calls", None):
+                logger.debug(
+                "Agent [%s] no tool calls in round %d — tool phase done",
+                self.agent_name, round_num,
+            )
+                break
+
+            tool_names = [tc["name"] for tc in response.tool_calls]
+            logger.info(
+                "Agent [%s] round %d/%d — calling tools: %s",
+                self.agent_name, round_num + 1, max_rounds, tool_names,
+            )
+
+
+            # 执行工具调用
+            try:
+                tool_results = await tool_executor.ainvoke({"messages": messages})
+            except Exception as e:
+                logger.warning("Agent [%s] ToolNode failed: %s", self.agent_name, e)
+                break
+
+            tool_msgs = tool_results.get("messages", [])
+
+            # 记录每次调用
+            for tc in response.tool_calls:
+                tool_name = tc.get("name", "")
+                tool_args = tc.get("args", {})
+                tc_id = tc.get("id", "")
+                # 找对应的 ToolMessage
+                tm = next(
+                    (m for m in tool_msgs if getattr(m, "tool_call_id", None) == tc_id),
+                    None,
+                )
+                result_text = tm.content if tm else ""
+                logger.info(
+                    "  [SkillTool] %-28s args=%-60s  =>  %s...",
+                    tool_name,
+                    str(tool_args)[:60],
+                    str(result_text)[:80],
+                )
+                tool_call_logs.append({
+                    "tool": tool_name,
+                    "args": tool_args,
+                    "result": str(result_text)[:500],
+                    "round": round_num + 1,
+                })
+
+            messages.extend(tool_msgs)
+
+        # 将工具结果拼接为可追加到提示的上下文字符串
+        if tool_call_logs:
+            parts = ["\n\n## 工具执行结果（以下信息来自实际工具调用，请参考）"]
+            for inv in tool_call_logs:
+                parts.append(f"\n### 工具: {inv['tool']}")
+                if inv["args"]:
+                    parts.append(f"参数: {inv['args']}")
+                parts.append(f"结果:\n{inv['result']}")
+            # 转义花括号，防止 ChatPromptTemplate 把工具输出中的 {var} 当成模板变量
+            tool_context = "\n".join(parts).replace("{", "{{").replace("}", "}}")
+        else:
+            tool_context = ""
+
+        return tool_call_logs, tool_context
+
+    # ── LangGraph 节点调用接口 ───────────────────────────────────────────────────
     async def __call__(self, state: "FactoryState") -> dict[str, Any]:
         """LangGraph 节点调用接口，遇到限流(429)自动退避重试"""
         logger.info("Agent [%s] starting", self.agent_name)
@@ -107,7 +238,6 @@ class BaseAgent(ABC):
                         "message": err_str,
                     }],
                 }
-        # 不会到达这里，但让类型检查器满意
         return {
             "error": "max retries exceeded",
             "retry_count": state["retry_count"] + 1,

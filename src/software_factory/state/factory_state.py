@@ -40,8 +40,8 @@ class APIEndpoint:
     method: str
     path: str
     description: str
-    request_body: dict[str, Any] | None = None
-    response_body: dict[str, Any] | None = None
+    request_body: dict[str, Any] | list | None = None
+    response_body: dict[str, Any] | list | None = None
 
 
 @dataclass
@@ -179,6 +179,10 @@ class FactoryState(TypedDict):
     error: str | None
     retry_count: int
     max_retries: int
+
+    # 反思修复上下文：测试失败时由 TestingAgent 填入，CodingAgent 据此做针对性修复
+    # 结构：{"error_output": str, "failed_files": [{"path": str, "content": str}]}
+    fix_context: dict | None
 
     # 输出目录
     output_dir: str

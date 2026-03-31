@@ -77,21 +77,44 @@ async def delete_project(
 async def get_project_logs(
     project_id: str,
     limit: int = 500,
+    stage: str = "",
     session: AsyncSession = Depends(db_session),
 ):
-    """获取项目运行日志"""
+    """获取项目运行日志，可按 stage 过滤"""
     project = await session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    result = await session.execute(
+    query = (
         select(ProjectLog)
         .where(ProjectLog.project_id == project_id)
         .order_by(ProjectLog.ts.asc())
         .limit(limit)
     )
+    result = await session.execute(query)
     logs = result.scalars().all()
-    return {"project_id": project_id, "logs": [log.to_dict() for log in logs]}
+
+    log_dicts = [log.to_dict() for log in logs]
+
+    # 按阶段过滤：保留该阶段的 stage_start/stage_end 以及所有 extra.stage 匹配的条目
+    if stage:
+        filtered = []
+        for l in log_dicts:
+            # type 中直接包含 stage 名
+            if stage in (l.get("message") or ""):
+                filtered.append(l)
+                continue
+            # extra 字段里有 stage 属性
+            extra = l.get("extra") or {}
+            if extra.get("stage") == stage or extra.get("node") == stage:
+                filtered.append(l)
+                continue
+            # stage_start / stage_end 类型
+            if l.get("type") in ("stage_start", "stage_end") and stage in (l.get("message") or ""):
+                filtered.append(l)
+        log_dicts = filtered
+
+    return {"project_id": project_id, "logs": log_dicts}
 
 
 @router.get("/{project_id}/files")

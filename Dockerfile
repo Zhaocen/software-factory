@@ -3,6 +3,7 @@ FROM python:3.11-slim
 # 安装编译依赖（aiomysql 需要 gcc）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

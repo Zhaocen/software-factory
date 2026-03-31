@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import collections
 import logging
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -16,10 +18,43 @@ from software_factory.db.config_service import load_runtime_config, seed_from_ya
 from software_factory.db.database import create_tables, get_session, init_engine
 from software_factory.db.seeds import seed_default_skills
 
+
+# ── 内存日志环形缓冲区（最近 2000 条，线程安全）────────────────────────────────
+class _MemoryLogHandler(logging.Handler):
+    def __init__(self, maxlen: int = 2000):
+        super().__init__()
+        self._buf: collections.deque[dict] = collections.deque(maxlen=maxlen)
+        self._lock = threading.Lock()
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            entry = {
+                "ts": self.formatTime(record, "%H:%M:%S"),
+                "level": record.levelname,
+                "name": record.name,
+                "message": record.getMessage(),
+            }
+            with self._lock:
+                self._buf.append(entry)
+        except Exception:
+            pass
+
+    def get_logs(self, limit: int = 500) -> list[dict]:
+        with self._lock:
+            items = list(self._buf)
+        return items[-limit:]
+
+
+_memory_handler = _MemoryLogHandler()
+_memory_handler.setLevel(logging.DEBUG)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+# 同时挂到根 logger，捕获所有模块日志
+logging.getLogger().addHandler(_memory_handler)
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,6 +80,21 @@ def create_app() -> FastAPI:
     app.include_router(projects_router)
     app.include_router(config_router)
     app.include_router(skills_router)
+
+    # 系统日志路由（内联注册，避免循环依赖）
+    from fastapi import APIRouter as _APIRouter
+    _syslog_router = _APIRouter(prefix="/api/system", tags=["system"])
+
+    @_syslog_router.get("/logs")
+    def get_system_logs(limit: int = 500, level: str = ""):
+        """返回最近的系统运行日志"""
+        logs = _memory_handler.get_logs(limit=limit)
+        if level:
+            lvl = level.upper()
+            logs = [l for l in logs if l["level"] == lvl]
+        return {"logs": logs, "total": len(logs)}
+
+    app.include_router(_syslog_router)
 
     # 前端静态文件
     frontend_dir = Path(__file__).parent.parent.parent.parent / "frontend"
